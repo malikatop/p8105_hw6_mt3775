@@ -1,6 +1,6 @@
 ---
-title: "p8105_hw6_mt3775"
-author: "Malika Top"
+title: "P8105 Homework 6"
+author: "Malika Top (mt3775)"
 date: "2024-12-02"
 output: github_document
 ---
@@ -44,27 +44,26 @@ weather_bootstrap =
   ) |> 
   select(-models, -summary, -strap) |> 
   unnest(results)
-weather_bootstrap =
-  weather_df |> 
-  modelr::bootstrap(n = 5000) |> 
-  mutate(
-    models = map(strap, \(df) lm(tmax ~ tmin, data = df)),
-    results = map(models, broom::tidy),
-    summary = map(models, broom::glance),
-    r_squared = map_dbl(summary, \(x) x$r.squared),
-    log_prod = map_dbl(results, \(x) log(prod(x$estimate)))
-  ) |> 
-  select(-models, -results, -summary, -strap)
 ```
 #### Distribution of estimates
 ```{r}
 weather_bootstrap |> 
   ggplot(aes(x = r_squared)) +
   geom_density()
+```
+
+The distribution of the $\hat{r}^{2}$ estimates looks almost symmetrical with a little
+bit of a shoulder on the left. It suggests that most of the bootstrap samples
+yielded a $\hat{r}^{2}$ value of around 0.91, which means 91% of the 
+variance in `tmax` can be explained by `tmin`. 
+```{r}
 weather_bootstrap |> 
   ggplot(aes(x = log_prod)) +
   geom_density()
 ```
+
+The distribution of the log($\hat{\beta_{0}}*\hat{\beta_{1}}$) estimates is also 
+fairly symmetrical. 
 
 #### Confidence intervals
 ```{r}
@@ -80,7 +79,7 @@ weather_bootstrap |>
 ```
 
 ## Problem 2
-The Washington Post has gathered data on homicides in 50 large U.S. cities and made the data available through a GitHub repository here. You can read their accompanying article here.
+#### Reading in and cleaning data
 ```{r}
 homicide_df = read.csv("data/homicide-data.csv")
 homicide_df = homicide_df |> 
@@ -103,10 +102,7 @@ homicide_df_sub =
   filter(! city_state %in% c("Dallas_TX", "Phoenix_AZ", "Kansas City_MO", "Tulsa_AL")) |> 
   filter(victim_race == "White" | victim_race == "Black")
 ```
-A case is solved if it is closed
-Create a city_state variable (e.g. “Baltimore, MD”), and a binary variable indicating whether the homicide is solved. Omit cities Dallas, TX; Phoenix, AZ; and Kansas City, MO – these don’t report victim race. Also omit Tulsa, AL – this is a data entry mistake. For this problem, limit your analysis those for whom victim_race is white or black. Be sure that victim_age is numeric.
-
-For the city of Baltimore, MD, use the glm function to fit a logistic regression with resolved vs unresolved as the outcome and victim age, sex and race as predictors. Save the output of glm as an R object; apply the broom::tidy to this object; and obtain the estimate and confidence interval of the adjusted odds ratio for solving homicides comparing male victims to female victims keeping all other variables fixed.
+#### Fitting logistic regression model
 ```{r}
 balt_md = 
   homicide_df_sub |> 
@@ -114,7 +110,8 @@ balt_md =
 log_reg = 
   balt_md |> 
   glm(resolved ~ victim_age + victim_sex + victim_race, data = _, family = binomial()) 
-test = log_reg |>  
+balt_md_results =
+  log_reg |>  
   broom::tidy() |> 
   mutate(OR = exp(estimate), 
          lower_bound = exp(confint(log_reg, "victim_sexMale"))[1],
@@ -122,12 +119,10 @@ test = log_reg |>
          ) |> 
   filter(term == "victim_sexMale") |> 
   select(term, log_OR = estimate, OR, p.value, lower_bound, upper_bound) 
-test |> 
+balt_md_results |> 
   knitr::kable(digits=3)
-
 ```
-
-Now run glm for each of the cities in your dataset, and extract the adjusted odds ratio (and CI) for solving homicides comparing male victims to female victims. Do this within a “tidy” pipeline, making use of purrr::map, list columns, and unnest as necessary to create a dataframe with estimated ORs and CIs for each city.
+#### GLM for all cities
 ```{r}
 glm_results = 
   homicide_df_sub |> 
@@ -144,19 +139,33 @@ glm_results =
     upper_bound = exp(conf.high)
   ) |> 
   select(city_state, OR, lower_bound, upper_bound, p.value)
+glm_results
 ```
-Create a plot that shows the estimated ORs and CIs for each city. Organize cities according to estimated OR, and comment on the plot.
+#### Plot of estimated ORs and CIs 
 ```{r}
 glm_results |> 
   mutate(city_state = fct_reorder(city_state, OR)) |> 
   ggplot(aes(x = city_state, y = OR)) +
   geom_point() +
   geom_errorbar(aes(ymin = lower_bound, ymax = upper_bound)) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Adjusted Odds Ratio for Solved Homicides across U.S")
 ```
 
+Keeping all other variables fixed, the cities with OR greater than 1 are 
+Nashville, TN, Fresno, CA, Stockton, CA, and Albuquerque, NM. This means that for these places,
+homicides where the victim was male were more likely to be solved than for female victims. 
+For Richmond, VA, and Atlanta, GA, with OR practically equal to 1, that means the odds of the 
+homicide being solved was practically same regardless of gender. 
+
+New York, NY has the lowest
+OR, so the odds of the homicide being solved is lower for cases where the victim was female. 
+However, it is interesting that the confidence intervals are widest for the `city_state` variables
+that have the higher ORs, and New York's is fairly narrow. There are some city-states whose CI do not
+include 1 like New York, indicating statistical significance. 
 
 ## Problem 3
+#### Loading and cleaning data for regression analysis
 ```{r}
 bwt_df = read.csv("data/birthweight.csv")
 bwt_df |> 
@@ -188,10 +197,9 @@ bwt_df =
     mrace = fct_infreq(mrace),
     malform = as.logical(malform))
 ```
-Load and clean the data for regression analysis (i.e. convert numeric to factor where appropriate, check for missing data, etc.).
+There do not appear to be any NA values.
 
-Propose a regression model for birthweight. This model may be based on a hypothesized structure for the factors that underly birthweight, on a data-driven model-building process, or a combination of the two. Describe your modeling process and show a plot of model residuals against fitted values – use add_predictions and add_residuals in making this plot.
-
+#### Regression model for `bwt`
 There's a lot of possible predictors for birthweight in this data, so `lasso` might be a good indicator of which predictors should be included.
 ```{r}
 set.seed(123)
@@ -207,13 +215,15 @@ lasso_fit =
   glmnet(x, y, lambda = lambda_opt)
 lasso_fit |> broom::tidy()
 ```
+
 However, it was noted in lecture that lasso doesn't do much good on the full dataset since there
 are so many points. Intuitively though, I would hypothesize that `mrace` and `malform` are good predictors
 for birthweight. For one, it is well-established that race affects pregnancy-related outcomes and the presence
 of malformations often mean the child has not developed as expected, which then usually means they're 
-underweight. 
+underweight. I also included `gaweeks` since I assumed that babies with longer gestation periods have
+more time to developed, a smilar reasoning to inclusion of `malform`. 
 ```{r}
-lm1 = lm(bwt ~ bhead*malform + mrace, data = bwt_df)
+lm1 = lm(bwt ~  malform + mrace + gaweeks, data = bwt_df)
 bwt_df |> 
   modelr::add_residuals(lm1) |> 
   modelr::add_predictions(lm1) |> 
@@ -221,23 +231,20 @@ bwt_df |>
   geom_point()
 ```
 
-Compare your model to two others:
-
-One using length at birth and gestational age as predictors (main effects only)
-One using head circumference, length, sex, and all interactions (including the three-way interaction) between these
+#### Model comparison
 
 ```{r}
 lm2 = lm(bwt ~ blength + gaweeks, data = bwt_df)
 lm3 = lm(bwt ~ bhead*blength*babysex, data = bwt_df)
 ```
-Make this comparison in terms of the cross-validated prediction error; use crossv_mc and functions in purrr as appropriate.
+
 ```{r}
 cv_bwt = 
   crossv_mc(bwt_df, 100)
 cv_bwt =
   cv_bwt |> 
   mutate(
-    model1 = map(cv_bwt$train, \(df) lm(bwt ~ mrace + malform, data = df)),
+    model1 = map(cv_bwt$train, \(df) lm(bwt ~ malform + mrace + gaweeks, data = bwt_df)),
     model2 = map(cv_bwt$train, \(df) lm(bwt ~ blength + gaweeks, data = bwt_df)),
     model3 = map(cv_bwt$train, \(df) lm(bwt ~ bhead*blength*babysex, data = bwt_df))
   ) |> 
@@ -256,7 +263,12 @@ cv_bwt |>
   mutate(model = fct_inorder(model)) |> 
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
-Based on 
-Note that although we expect your model to be reasonable, model building itself is not a main idea of the course and we don’t necessarily expect your model to be “optimal”.
+
+Based on the RMSEs of the three models, mine definitely does not do as well as the other two since
+it has a noticeably higher RMSE. The model that includes the 3-way interaction seems to do the best,
+so maybe including an interaction between `malform` and `gaweeks` would improve my model. Additionally,
+the two models I compared mine to are purely related to the newborn, and does not take into account 
+attributes of the mother, which I still believe plays a role. 
+
 
 
